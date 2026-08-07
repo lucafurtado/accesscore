@@ -1,0 +1,22 @@
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+.env
+.coverage
+dist/
+build/
+*.egg-info/
+
+# Node
+node_modules/
+.next/
+.env.local
+
+# Docker
+postgres_data/
+
+# IDE
+.idea/
+.vscode/settings.json
