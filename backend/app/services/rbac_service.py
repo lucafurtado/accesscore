@@ -27,6 +27,9 @@ class RBACService:
         effective = await self._roles.get_user_effective_permissions(user)
         return permission_key in effective
 
+    async def get_effective_permissions(self, user: User) -> set[str]:
+        return await self._roles.get_user_effective_permissions(user)
+
     # --- Lookups (path-parameter resolution for routers) ---
 
     async def get_role_by_id(self, role_id: uuid.UUID) -> Role | None:

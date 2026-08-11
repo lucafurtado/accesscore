@@ -18,6 +18,7 @@ from app.repositories.user_repository import UserRepository
 from app.services.audit_service import AuditService
 from app.services.auth_service import AuthService
 from app.services.rbac_service import RBACService
+from app.services.user_service import UserService
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -63,6 +64,13 @@ def get_rbac_service(
         UserRepository(session),
         audit_service,
     )
+
+
+def get_user_service(
+    session: AsyncSession = Depends(get_db),
+    audit_service: AuditService = Depends(get_audit_service),
+) -> UserService:
+    return UserService(UserRepository(session), RefreshTokenRepository(session), audit_service)
 
 
 def _credentials_exception() -> HTTPException:
