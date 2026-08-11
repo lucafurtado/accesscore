@@ -35,7 +35,7 @@ Next.js (TypeScript + Tailwind + shadcn/ui)
 ## Tech Stack
 
 **Backend:** Python 3.12, FastAPI 0.115+, SQLAlchemy 2 (async), Alembic, PostgreSQL 16, Redis 7
-**Frontend:** Next.js 14+ (App Router), TypeScript, Tailwind CSS, shadcn/ui, Zustand
+**Frontend:** Next.js 16 (App Router), TypeScript, Tailwind CSS, shadcn/ui
 **Infrastructure:** Docker, Docker Compose, GitHub Actions
 
 ## Core Features
