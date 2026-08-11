@@ -1,4 +1,6 @@
 import uuid
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -7,15 +9,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import InvalidTokenError, decode_access_token
 from app.db.session import get_db
 from app.models.user import User
+from app.repositories.permission_repository import PermissionRepository
 from app.repositories.refresh_token_repository import RefreshTokenRepository
+from app.repositories.role_repository import RoleRepository
 from app.repositories.user_repository import UserRepository
 from app.services.auth_service import AuthService
+from app.services.rbac_service import RBACService
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def get_auth_service(session: AsyncSession = Depends(get_db)) -> AuthService:
     return AuthService(UserRepository(session), RefreshTokenRepository(session))
+
+
+def get_rbac_service(session: AsyncSession = Depends(get_db)) -> RBACService:
+    return RBACService(
+        PermissionRepository(session), RoleRepository(session), UserRepository(session)
+    )
 
 
 def _credentials_exception() -> HTTPException:
@@ -48,3 +59,25 @@ async def get_current_user(
         raise _credentials_exception()
 
     return user
+
+
+def require_permission(permission_key: str) -> Callable[..., Coroutine[Any, Any, User]]:
+    """Return a dependency that authorizes the current user for `permission_key`.
+
+    Permissions are resolved from current database state on every call, never
+    from the JWT, so revoking a permission takes effect on the next request
+    even though the caller's access token is still valid.
+    """
+
+    async def _dependency(
+        current_user: User = Depends(get_current_user),
+        rbac_service: RBACService = Depends(get_rbac_service),
+    ) -> User:
+        if not await rbac_service.has_permission(current_user, permission_key):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to perform this action",
+            )
+        return current_user
+
+    return _dependency

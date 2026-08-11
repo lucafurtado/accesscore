@@ -7,9 +7,11 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.models.associations import user_roles
 
 if TYPE_CHECKING:
     from app.models.refresh_token import RefreshToken
+    from app.models.role import Role
 
 
 class User(Base):
@@ -31,3 +33,4 @@ class User(Base):
     refresh_tokens: Mapped[list["RefreshToken"]] = relationship(
         back_populates="user", cascade="all, delete-orphan", passive_deletes=True
     )
+    roles: Mapped[list["Role"]] = relationship(secondary=user_roles, back_populates="users")

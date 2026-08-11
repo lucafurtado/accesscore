@@ -11,7 +11,12 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api.v1.router import api_router
 from app.core.config import settings
-from app.core.exceptions import AuthenticationError, InvalidRefreshTokenError
+from app.core.exceptions import (
+    AlreadyExistsError,
+    AuthenticationError,
+    InvalidRefreshTokenError,
+    PrivilegeEscalationError,
+)
 from app.db.session import engine
 
 structlog.configure(
@@ -81,6 +86,18 @@ async def invalid_refresh_token_handler(
     request: Request, exc: InvalidRefreshTokenError
 ) -> JSONResponse:
     return JSONResponse(status_code=401, content={"detail": "Invalid or expired refresh token"})
+
+
+@app.exception_handler(AlreadyExistsError)
+async def already_exists_error_handler(request: Request, exc: AlreadyExistsError) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+@app.exception_handler(PrivilegeEscalationError)
+async def privilege_escalation_error_handler(
+    request: Request, exc: PrivilegeEscalationError
+) -> JSONResponse:
+    return JSONResponse(status_code=403, content={"detail": str(exc)})
 
 
 app.include_router(api_router, prefix=settings.api_v1_prefix)

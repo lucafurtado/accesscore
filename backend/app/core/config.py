@@ -29,5 +29,10 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:3000"]
     bcrypt_rounds: int = 12
 
+    # Optional: if both are set, the RBAC seed script bootstraps a dev admin
+    # user with the Admin role. Never set in production; unset means skipped.
+    seed_admin_email: str | None = None
+    seed_admin_password: str | None = None
+
 
 settings = Settings()
