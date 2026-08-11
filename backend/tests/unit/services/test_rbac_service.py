@@ -202,6 +202,19 @@ async def test_list_roles_delegates_to_repository(service: RBACService, role_rep
     assert result == roles
 
 
+async def test_list_role_permissions_delegates_to_repository(
+    service: RBACService, role_repo: Any
+) -> None:
+    role = _make_role()
+    permissions = [_make_permission("users", "read")]
+    role_repo.list_permissions.return_value = permissions
+
+    result = await service.list_role_permissions(role)
+
+    assert result == permissions
+    role_repo.list_permissions.assert_awaited_once_with(role)
+
+
 async def test_assign_permission_to_role_delegates_to_repository(
     service: RBACService, role_repo: Any
 ) -> None:

@@ -92,6 +92,32 @@ async def test_assign_and_remove_permission(db_session: AsyncSession) -> None:
     assert permission not in role.permissions
 
 
+async def test_list_permissions_returns_assigned_permissions(db_session: AsyncSession) -> None:
+    role_repo = RoleRepository(db_session)
+    permission_repo = PermissionRepository(db_session)
+    role = await role_repo.create(name="RoleForListing")
+    read_perm = await permission_repo.create(resource="widgets", action="read")
+    update_perm = await permission_repo.create(resource="widgets", action="update")
+
+    await role_repo.assign_permission(role, read_perm)
+    await role_repo.assign_permission(role, update_perm)
+
+    permissions = await role_repo.list_permissions(role)
+
+    assert {p.id for p in permissions} == {read_perm.id, update_perm.id}
+
+
+async def test_list_permissions_empty_for_role_without_permissions(
+    db_session: AsyncSession,
+) -> None:
+    role_repo = RoleRepository(db_session)
+    role = await role_repo.create(name="BarePermissionsRole")
+
+    permissions = await role_repo.list_permissions(role)
+
+    assert permissions == []
+
+
 async def test_assign_permission_is_idempotent(db_session: AsyncSession) -> None:
     role_repo = RoleRepository(db_session)
     permission_repo = PermissionRepository(db_session)

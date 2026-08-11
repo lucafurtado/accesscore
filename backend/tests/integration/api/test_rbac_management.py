@@ -204,6 +204,55 @@ async def test_assign_and_remove_permission_from_role(
     assert remove.status_code == 204
 
 
+async def test_list_role_permissions_requires_roles_read_and_reflects_assignment(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    _, manager_token = await _create_user_with_permissions(
+        db_session, "manager-listperms@example.com", ["roles:manage", "permissions:manage"]
+    )
+    _, reader_token = await _create_user_with_permissions(
+        db_session, "reader-listperms@example.com", ["roles:read"]
+    )
+    _, no_perm_token = await _create_user_with_permissions(
+        db_session, "noperm-listperms@example.com", []
+    )
+    manager_headers = _auth_headers(manager_token)
+
+    role_resp = await client.post(
+        "/api/v1/roles", json={"name": "ListPermsRole"}, headers=manager_headers
+    )
+    role_id = role_resp.json()["id"]
+    perm_resp = await client.post(
+        "/api/v1/permissions",
+        json={"resource": "widgets", "action": "delete"},
+        headers=manager_headers,
+    )
+    permission_id = perm_resp.json()["id"]
+
+    denied = await client.get(
+        f"/api/v1/roles/{role_id}/permissions", headers=_auth_headers(no_perm_token)
+    )
+    assert denied.status_code == 403
+
+    empty = await client.get(
+        f"/api/v1/roles/{role_id}/permissions", headers=_auth_headers(reader_token)
+    )
+    assert empty.status_code == 200
+    assert empty.json() == []
+
+    await client.post(
+        f"/api/v1/roles/{role_id}/permissions",
+        json={"permission_id": permission_id},
+        headers=manager_headers,
+    )
+
+    populated = await client.get(
+        f"/api/v1/roles/{role_id}/permissions", headers=_auth_headers(reader_token)
+    )
+    assert populated.status_code == 200
+    assert [p["id"] for p in populated.json()] == [permission_id]
+
+
 # --- User <-> Role assignment ---
 
 

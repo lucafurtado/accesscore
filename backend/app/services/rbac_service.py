@@ -156,6 +156,9 @@ class RBACService:
     async def list_roles(self) -> list[Role]:
         return await self._roles.list_all()
 
+    async def list_role_permissions(self, role: Role) -> list[Permission]:
+        return await self._roles.list_permissions(role)
+
     async def assign_permission_to_role(
         self,
         role: Role,

@@ -8,9 +8,16 @@ from app.core.dependencies import (
     get_rbac_service,
     require_permission,
 )
+from app.models.permission import Permission
 from app.models.role import Role
 from app.models.user import User
-from app.schemas.rbac import PermissionAssignmentRequest, RoleCreate, RoleResponse, RoleUpdate
+from app.schemas.rbac import (
+    PermissionAssignmentRequest,
+    PermissionResponse,
+    RoleCreate,
+    RoleResponse,
+    RoleUpdate,
+)
 from app.services.rbac_service import RBACService
 
 router = APIRouter()
@@ -89,6 +96,15 @@ async def delete_role(
         ip_address=audit_ctx.ip_address,
         user_agent=audit_ctx.user_agent,
     )
+
+
+@router.get("/{role_id}/permissions", response_model=list[PermissionResponse])
+async def list_role_permissions(
+    _: User = Depends(require_permission("roles:read")),
+    role: Role = Depends(_get_role_or_404),
+    rbac_service: RBACService = Depends(get_rbac_service),
+) -> list[Permission]:
+    return await rbac_service.list_role_permissions(role)
 
 
 @router.post("/{role_id}/permissions", status_code=status.HTTP_204_NO_CONTENT)

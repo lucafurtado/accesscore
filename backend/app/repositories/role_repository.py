@@ -48,6 +48,10 @@ class RoleRepository:
         await self._session.delete(role)
         await self._session.flush()
 
+    async def list_permissions(self, role: Role) -> list[Permission]:
+        await self._session.refresh(role, attribute_names=["permissions"])
+        return list(role.permissions)
+
     async def assign_permission(self, role: Role, permission: Permission) -> None:
         await self._session.refresh(role, attribute_names=["permissions"])
         if permission not in role.permissions:
