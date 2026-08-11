@@ -60,16 +60,131 @@ Swagger (dev only): http://localhost:8000/docs
 Frontend: http://localhost:3000
 
 ## Authentication Flow
-[Will be documented after Milestone 1]
+
+```
+POST /auth/login  (email + password)
+   │
+   ├─ verify bcrypt hash, check is_active
+   ├─ issue access token  (JWT, HS256, 15 min, claims: sub/iat/exp/type only)
+   └─ issue refresh token (opaque, secrets.token_urlsafe(32))
+          │
+          └─ stored in Postgres as SHA-256 hash only — the raw value is
+             returned to the client exactly once and never persisted
+
+POST /auth/refresh (refresh_token)
+   │
+   ├─ hash it, look up the stored record
+   ├─ reject if missing / revoked / expired / owning user inactive
+   ├─ revoke the old record (single-use, rotating)
+   └─ issue a brand-new access + refresh pair
+
+POST /auth/logout            → revokes the given refresh token
+PUT  /auth/change-password   → re-verifies current password, then revokes
+                                every refresh token for that user (forces
+                                re-login on all devices/sessions)
+```
+
+Every login attempt — success or failure — is written to the audit log. Failed
+logins never distinguish "wrong password" from "unknown email" in the
+response (same generic message, same status code), preventing account
+enumeration; the audit record for a failure carries the attempted email but
+no actor or user ID, since there's no authenticated identity to attach it to.
 
 ## RBAC Model
-[Will be documented after Milestone 2]
+
+```
+User ──< user_roles >── Role ──< role_permissions >── Permission
+                                                          │
+                                          resource + action, e.g.
+                                          "users:read", "roles:manage"
+```
+
+A permission is never a single stored string — it's a `(resource, action)`
+pair, composed as `f"{resource}:{action}"` only when read. Every protected
+route declares the permission it needs via a `require_permission("...")`
+dependency, which re-resolves the caller's effective permission set from the
+database **on every request**:
+
+```python
+async def get_user_effective_permissions(self, user: User) -> set[str]:
+    # joins user_roles -> roles -> role_permissions -> permissions
+    ...
+```
+
+Permissions are deliberately **not** embedded in the JWT. The access token
+only proves *who* the caller is; *what* they can do is always looked up
+fresh. Revoke a permission or role and it takes effect on the caller's very
+next request — even though their 15-minute access token is technically still
+valid. This is verified directly by an integration test that revokes a
+permission mid-session and confirms the next call is denied with the same
+token.
+
+Two operations are blocked even for users who otherwise hold the relevant
+`*:manage`/`*:disable` permission, because they're a distinct escalation/
+lockout risk rather than an ordinary authorization check:
+- assigning a role to **yourself**
+- disabling **your own** account
 
 ## Security Decisions
-[Will be documented after Milestone 3]
+
+- **Passwords** are hashed with bcrypt (`passlib`, configurable rounds) and
+  never returned in any API response — enforced by tests that assert
+  `hashed_password` never appears in response bodies.
+- **Refresh tokens** are opaque random values; only their SHA-256 hash is
+  stored. A raw token is visible exactly once, in the response that issues
+  it. Rotation is single-use: reusing an already-rotated refresh token fails
+  the same way an unknown one does.
+- **Authorization is always server-side.** Frontend permission checks
+  (Milestone 4) are UX conveniences for hiding buttons a user can't use —
+  the backend re-checks every mutating request regardless of what the UI
+  shows.
+- **Audit logs are append-only at the database level**, not just by
+  convention: a Postgres trigger rejects any `UPDATE`/`DELETE` on
+  `audit_logs` outright, and the repository layer exposes no methods that
+  could even attempt one. Tests confirm the trigger itself rejects a direct
+  `UPDATE`.
+- **Audit records never contain secrets.** Every write goes through one
+  `AuditService.record()` call site with a typed `context` payload
+  restricted to primitives and string lists — there's no path for a raw
+  password, password hash, refresh token, or JWT to end up in a log row.
+  An acceptance test exercises every audited action end-to-end and asserts
+  none of those values appear anywhere in the resulting records.
+- **401 vs 403 is a strict contract:** 401 means "I don't know who you are"
+  (missing/invalid/expired token, inactive account); 403 means "I know who
+  you are, and the answer is no." Routes never blur the two, since leaking
+  "this resource exists but you can't see it" vs. "this doesn't exist" is
+  its own minor information leak.
 
 ## Database Schema
-[Will be documented after Milestone 3]
+
+```
+users             id, email (unique), hashed_password, full_name,
+                  is_active, created_at, updated_at, last_login_at
+
+refresh_tokens    id, user_id → users, token_hash (unique), expires_at,
+                  revoked, created_at, user_agent, ip_address
+
+roles             id, name (unique), description, created_at, updated_at
+
+permissions       id, resource, action (unique together), description,
+                  created_at
+
+role_permissions  role_id → roles, permission_id → permissions
+
+user_roles        user_id → users, role_id → roles
+
+audit_logs        id, actor_user_id → users (nullable, SET NULL on delete),
+                  action, resource_type, resource_id, ip_address,
+                  user_agent, context (JSONB), created_at
+                  — append-only, enforced by a DB trigger
+```
+
+All primary keys are UUIDs. `role_permissions` and `user_roles` are plain
+association tables (composite primary key, no ORM identity of their own).
+List endpoints (`/users`, `/audit-logs`) use cursor/keyset pagination —
+ordered by `(created_at, id)` descending — rather than `OFFSET`, so results
+stay stable under concurrent inserts and an indefinitely-growing audit table
+doesn't pay an increasing `OFFSET` scan cost per page.
 
 ## API Documentation
 FastAPI generates OpenAPI docs automatically. In development, available at `/docs`.
@@ -96,7 +211,7 @@ pytest --cov=app
 
 ## Future Roadmap
 
-- v1.1: Email invitations, avatar upload, cursor pagination
+- v1.1: Email invitations, avatar upload
 - v1.2: MFA (TOTP), login anomaly detection
 - v1.4: Multi-tenancy (Organizations)
 - v2.0: SSO (SAML/OIDC), API keys, webhooks
