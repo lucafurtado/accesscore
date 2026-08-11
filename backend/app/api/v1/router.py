@@ -1,10 +1,10 @@
 from fastapi import APIRouter
 
+from app.api.v1.routes.auth import router as auth_router
+
 api_router = APIRouter()
 
-# Milestone 1: auth routes
-# from app.api.v1.routes.auth import router as auth_router
-# api_router.include_router(auth_router, prefix="/auth", tags=["auth"])
+api_router.include_router(auth_router, prefix="/auth", tags=["auth"])
 
 # Milestone 2: roles and permissions routes
 # from app.api.v1.routes.roles import router as roles_router

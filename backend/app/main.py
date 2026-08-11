@@ -6,10 +6,12 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api.v1.router import api_router
 from app.core.config import settings
+from app.core.exceptions import AuthenticationError, InvalidRefreshTokenError
 from app.db.session import engine
 
 structlog.configure(
@@ -67,6 +69,19 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(RequestIDMiddleware)
+
+
+@app.exception_handler(AuthenticationError)
+async def authentication_error_handler(request: Request, exc: AuthenticationError) -> JSONResponse:
+    return JSONResponse(status_code=401, content={"detail": "Invalid credentials"})
+
+
+@app.exception_handler(InvalidRefreshTokenError)
+async def invalid_refresh_token_handler(
+    request: Request, exc: InvalidRefreshTokenError
+) -> JSONResponse:
+    return JSONResponse(status_code=401, content={"detail": "Invalid or expired refresh token"})
+
 
 app.include_router(api_router, prefix=settings.api_v1_prefix)
 
