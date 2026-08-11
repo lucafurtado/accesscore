@@ -3,6 +3,7 @@ from urllib.parse import urlparse
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -38,6 +39,23 @@ async def db_engine() -> AsyncGenerator[AsyncEngine, None]:
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Base.metadata.create_all() only creates tables/columns from ORM
+        # metadata; it doesn't run Alembic migrations, so DB-level objects
+        # defined only as raw SQL there (the audit_logs append-only trigger,
+        # see migrations/versions/..._add_audit_logs_table.py) must be
+        # created here too, mirroring that migration's upgrade() step.
+        await conn.execute(text("""
+                CREATE OR REPLACE FUNCTION audit_logs_deny_mutation() RETURNS trigger AS $$
+                BEGIN
+                    RAISE EXCEPTION 'audit_logs is append-only';
+                END;
+                $$ LANGUAGE plpgsql;
+                """))
+        await conn.execute(text("""
+                CREATE TRIGGER audit_logs_no_update_delete
+                BEFORE UPDATE OR DELETE ON audit_logs
+                FOR EACH ROW EXECUTE FUNCTION audit_logs_deny_mutation();
+                """))
 
     yield engine
 

@@ -11,6 +11,7 @@ from app.models.refresh_token import RefreshToken
 from app.models.user import User
 from app.repositories.refresh_token_repository import RefreshTokenRepository
 from app.repositories.user_repository import UserRepository
+from app.services.audit_service import AuditService
 from app.services.auth_service import AuthService
 
 
@@ -49,8 +50,13 @@ def refresh_token_repo() -> Any:
 
 
 @pytest.fixture
-def service(user_repo: Any, refresh_token_repo: Any) -> AuthService:
-    return AuthService(user_repo, refresh_token_repo)
+def audit_service() -> Any:
+    return create_autospec(AuditService, instance=True)
+
+
+@pytest.fixture
+def service(user_repo: Any, refresh_token_repo: Any, audit_service: Any) -> AuthService:
+    return AuthService(user_repo, refresh_token_repo, audit_service)
 
 
 async def test_authenticate_user_succeeds_with_correct_credentials(

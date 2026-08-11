@@ -1,31 +1,67 @@
 import uuid
 from collections.abc import Callable, Coroutine
+from dataclasses import dataclass
 from typing import Any
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import InvalidTokenError, decode_access_token
 from app.db.session import get_db
 from app.models.user import User
+from app.repositories.audit_log_repository import AuditLogRepository
 from app.repositories.permission_repository import PermissionRepository
 from app.repositories.refresh_token_repository import RefreshTokenRepository
 from app.repositories.role_repository import RoleRepository
 from app.repositories.user_repository import UserRepository
+from app.services.audit_service import AuditService
 from app.services.auth_service import AuthService
 from app.services.rbac_service import RBACService
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 
 
-def get_auth_service(session: AsyncSession = Depends(get_db)) -> AuthService:
-    return AuthService(UserRepository(session), RefreshTokenRepository(session))
+@dataclass
+class AuditContext:
+    """IP address and user agent for the current request, for audit records.
+
+    Services never receive the raw Request object (that would break the
+    Router -> Service -> Repository layering); routes extract this once via
+    Depends(get_audit_context) and pass it down explicitly instead.
+    """
+
+    ip_address: str | None
+    user_agent: str | None
 
 
-def get_rbac_service(session: AsyncSession = Depends(get_db)) -> RBACService:
+def get_audit_context(request: Request) -> AuditContext:
+    return AuditContext(
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
+
+
+def get_audit_service(session: AsyncSession = Depends(get_db)) -> AuditService:
+    return AuditService(AuditLogRepository(session))
+
+
+def get_auth_service(
+    session: AsyncSession = Depends(get_db),
+    audit_service: AuditService = Depends(get_audit_service),
+) -> AuthService:
+    return AuthService(UserRepository(session), RefreshTokenRepository(session), audit_service)
+
+
+def get_rbac_service(
+    session: AsyncSession = Depends(get_db),
+    audit_service: AuditService = Depends(get_audit_service),
+) -> RBACService:
     return RBACService(
-        PermissionRepository(session), RoleRepository(session), UserRepository(session)
+        PermissionRepository(session),
+        RoleRepository(session),
+        UserRepository(session),
+        audit_service,
     )
 
 

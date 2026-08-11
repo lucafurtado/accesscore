@@ -9,7 +9,7 @@ from app.core.config import settings
 from app.db.base import Base
 
 # Models must be imported here so Alembic detects schema changes.
-from app.models import Permission, RefreshToken, Role, User  # noqa: F401
+from app.models import AuditLog, Permission, RefreshToken, Role, User  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)

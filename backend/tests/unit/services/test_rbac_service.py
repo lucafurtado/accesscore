@@ -11,6 +11,7 @@ from app.models.user import User
 from app.repositories.permission_repository import PermissionRepository
 from app.repositories.role_repository import RoleRepository
 from app.repositories.user_repository import UserRepository
+from app.services.audit_service import AuditService
 from app.services.rbac_service import RBACService
 
 
@@ -42,8 +43,18 @@ def user_repo() -> Any:
 
 
 @pytest.fixture
-def service(permission_repo: Any, role_repo: Any, user_repo: Any) -> RBACService:
-    return RBACService(permission_repo, role_repo, user_repo)
+def audit_service() -> Any:
+    return create_autospec(AuditService, instance=True)
+
+
+@pytest.fixture
+def service(
+    permission_repo: Any, role_repo: Any, user_repo: Any, audit_service: Any
+) -> RBACService:
+    return RBACService(permission_repo, role_repo, user_repo, audit_service)
+
+
+ACTOR_ID = uuid.uuid4()
 
 
 # --- has_permission ---
@@ -76,7 +87,7 @@ async def test_create_permission_succeeds_when_new(
     permission_repo.exists.return_value = False
     permission_repo.create.return_value = _make_permission()
 
-    result = await service.create_permission("users", "read")
+    result = await service.create_permission("users", "read", actor_user_id=ACTOR_ID)
 
     assert result.resource == "users"
     permission_repo.create.assert_awaited_once_with("users", "read", None)
@@ -88,7 +99,7 @@ async def test_create_permission_fails_when_already_exists(
     permission_repo.exists.return_value = True
 
     with pytest.raises(AlreadyExistsError):
-        await service.create_permission("users", "read")
+        await service.create_permission("users", "read", actor_user_id=ACTOR_ID)
 
     permission_repo.create.assert_not_awaited()
 
@@ -123,7 +134,7 @@ async def test_create_role_succeeds_when_name_available(
     role_repo.get_by_name.return_value = None
     role_repo.create.return_value = _make_role("Manager")
 
-    result = await service.create_role("Manager", "Manages users")
+    result = await service.create_role("Manager", "Manages users", actor_user_id=ACTOR_ID)
 
     assert result.name == "Manager"
     role_repo.create.assert_awaited_once_with("Manager", "Manages users")
@@ -133,7 +144,7 @@ async def test_create_role_fails_when_name_taken(service: RBACService, role_repo
     role_repo.get_by_name.return_value = _make_role("Manager")
 
     with pytest.raises(AlreadyExistsError):
-        await service.create_role("Manager")
+        await service.create_role("Manager", actor_user_id=ACTOR_ID)
 
     role_repo.create.assert_not_awaited()
 
@@ -144,7 +155,7 @@ async def test_update_role_keeping_same_name_skips_duplicate_check(
     role = _make_role("Manager")
     role_repo.update.return_value = role
 
-    await service.update_role(role, name="Manager", description="Updated")
+    await service.update_role(role, name="Manager", description="Updated", actor_user_id=ACTOR_ID)
 
     role_repo.get_by_name.assert_not_awaited()
     role_repo.update.assert_awaited_once_with(role, name="Manager", description="Updated")
@@ -157,7 +168,7 @@ async def test_update_role_renaming_to_available_name_succeeds(
     role_repo.get_by_name.return_value = None
     role_repo.update.return_value = role
 
-    await service.update_role(role, name="NewName")
+    await service.update_role(role, name="NewName", actor_user_id=ACTOR_ID)
 
     role_repo.update.assert_awaited_once_with(role, name="NewName", description=None)
 
@@ -169,7 +180,7 @@ async def test_update_role_renaming_to_taken_name_fails(
     role_repo.get_by_name.return_value = _make_role("TakenName")
 
     with pytest.raises(AlreadyExistsError):
-        await service.update_role(role, name="TakenName")
+        await service.update_role(role, name="TakenName", actor_user_id=ACTOR_ID)
 
     role_repo.update.assert_not_awaited()
 
@@ -177,7 +188,7 @@ async def test_update_role_renaming_to_taken_name_fails(
 async def test_delete_role_delegates_to_repository(service: RBACService, role_repo: Any) -> None:
     role = _make_role()
 
-    await service.delete_role(role)
+    await service.delete_role(role, actor_user_id=ACTOR_ID)
 
     role_repo.delete.assert_awaited_once_with(role)
 
@@ -197,7 +208,7 @@ async def test_assign_permission_to_role_delegates_to_repository(
     role = _make_role()
     permission = _make_permission()
 
-    await service.assign_permission_to_role(role, permission)
+    await service.assign_permission_to_role(role, permission, actor_user_id=ACTOR_ID)
 
     role_repo.assign_permission.assert_awaited_once_with(role, permission)
 
@@ -208,7 +219,7 @@ async def test_remove_permission_from_role_delegates_to_repository(
     role = _make_role()
     permission = _make_permission()
 
-    await service.remove_permission_from_role(role, permission)
+    await service.remove_permission_from_role(role, permission, actor_user_id=ACTOR_ID)
 
     role_repo.remove_permission.assert_awaited_once_with(role, permission)
 

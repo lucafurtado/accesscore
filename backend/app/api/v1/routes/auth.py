@@ -1,6 +1,11 @@
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, status
 
-from app.core.dependencies import get_auth_service, get_current_user
+from app.core.dependencies import (
+    AuditContext,
+    get_audit_context,
+    get_auth_service,
+    get_current_user,
+)
 from app.models.user import User
 from app.schemas.auth import (
     ChangePasswordRequest,
@@ -17,15 +22,20 @@ router = APIRouter()
 @router.post("/login", response_model=TokenResponse, status_code=status.HTTP_200_OK)
 async def login(
     payload: LoginRequest,
-    request: Request,
+    audit_ctx: AuditContext = Depends(get_audit_context),
     auth_service: AuthService = Depends(get_auth_service),
 ) -> TokenResponse:
-    user = await auth_service.authenticate_user(payload.email, payload.password)
+    user = await auth_service.authenticate_user(
+        payload.email,
+        payload.password,
+        ip_address=audit_ctx.ip_address,
+        user_agent=audit_ctx.user_agent,
+    )
 
     token_pair = await auth_service.create_session(
         user,
-        user_agent=request.headers.get("user-agent"),
-        ip_address=request.client.host if request.client else None,
+        user_agent=audit_ctx.user_agent,
+        ip_address=audit_ctx.ip_address,
     )
 
     return TokenResponse(
@@ -38,13 +48,13 @@ async def login(
 @router.post("/refresh", response_model=TokenResponse, status_code=status.HTTP_200_OK)
 async def refresh(
     payload: RefreshRequest,
-    request: Request,
+    audit_ctx: AuditContext = Depends(get_audit_context),
     auth_service: AuthService = Depends(get_auth_service),
 ) -> TokenResponse:
     token_pair = await auth_service.refresh_session(
         payload.refresh_token,
-        user_agent=request.headers.get("user-agent"),
-        ip_address=request.client.host if request.client else None,
+        user_agent=audit_ctx.user_agent,
+        ip_address=audit_ctx.ip_address,
     )
 
     return TokenResponse(
@@ -57,15 +67,27 @@ async def refresh(
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(
     payload: LogoutRequest,
+    audit_ctx: AuditContext = Depends(get_audit_context),
     auth_service: AuthService = Depends(get_auth_service),
 ) -> None:
-    await auth_service.logout(payload.refresh_token)
+    await auth_service.logout(
+        payload.refresh_token,
+        ip_address=audit_ctx.ip_address,
+        user_agent=audit_ctx.user_agent,
+    )
 
 
 @router.put("/change-password", status_code=status.HTTP_204_NO_CONTENT)
 async def change_password(
     payload: ChangePasswordRequest,
     current_user: User = Depends(get_current_user),
+    audit_ctx: AuditContext = Depends(get_audit_context),
     auth_service: AuthService = Depends(get_auth_service),
 ) -> None:
-    await auth_service.change_password(current_user, payload.current_password, payload.new_password)
+    await auth_service.change_password(
+        current_user,
+        payload.current_password,
+        payload.new_password,
+        ip_address=audit_ctx.ip_address,
+        user_agent=audit_ctx.user_agent,
+    )
