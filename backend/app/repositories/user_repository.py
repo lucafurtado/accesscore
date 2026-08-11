@@ -50,6 +50,10 @@ class UserRepository:
     async def set_active(self, user: User, is_active: bool) -> None:
         user.is_active = is_active
         await self._session.flush()
+        # Same reason as update_profile above: updated_at is server-computed,
+        # so it's expired after flush and must be refreshed here rather than
+        # lazily reloaded outside the async context during serialization.
+        await self._session.refresh(user)
 
     async def list_paginated(
         self,
