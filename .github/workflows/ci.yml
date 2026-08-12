@@ -75,6 +75,12 @@ jobs:
       - name: Lint (eslint)
         run: npm run lint
 
+      - name: Generate route types
+        # tsc depends on Next.js's auto-generated route types (LayoutProps,
+        # etc.), which only exist after `next dev`/`next build`/`next
+        # typegen` has run at least once - a fresh checkout has none yet.
+        run: npx next typegen
+
       - name: Type check
         run: npx tsc --noEmit
 
