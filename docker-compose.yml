@@ -11,15 +11,12 @@ services:
       - .env
     environment:
       DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY}
       DEBUG: "true"
       CORS_ORIGINS: ${CORS_ORIGINS}
     depends_on:
       db:
         condition: service_healthy
-      redis:
-        condition: service_started
 
   db:
     image: postgres:16-alpine
@@ -37,10 +34,17 @@ services:
       timeout: 5s
       retries: 5
 
-  redis:
-    image: redis:7-alpine
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
     ports:
-      - "6379:6379"
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000/api/v1
+      BACKEND_API_URL: http://backend:8000/api/v1
+    depends_on:
+      - backend
 
 volumes:
   postgres_data:

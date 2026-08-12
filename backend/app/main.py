@@ -1,13 +1,12 @@
 import logging
-import uuid
-from collections.abc import AsyncGenerator, Awaitable, Callable
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 import structlog
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
+from sqlalchemy import text
 
 from app.api.v1.router import api_router
 from app.core.config import settings
@@ -18,6 +17,8 @@ from app.core.exceptions import (
     PrivilegeEscalationError,
 )
 from app.db.session import engine
+from app.middleware.request_id import RequestIDMiddleware
+from app.middleware.security_headers import SecurityHeadersMiddleware
 
 structlog.configure(
     processors=[
@@ -43,13 +44,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("shut down")
 
 
+_docs_visible = settings.debug or settings.enable_api_docs
+
 app = FastAPI(
     title="AccessCore",
     description="Enterprise Identity & Access Management Platform",
     version="0.1.0",
-    docs_url="/docs" if settings.debug else None,
-    redoc_url="/redoc" if settings.debug else None,
-    openapi_url="/openapi.json" if settings.debug else None,
+    docs_url="/docs" if _docs_visible else None,
+    redoc_url="/redoc" if _docs_visible else None,
+    openapi_url="/openapi.json" if _docs_visible else None,
     lifespan=lifespan,
 )
 
@@ -61,18 +64,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-class RequestIDMiddleware(BaseHTTPMiddleware):
-    async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response:
-        request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
-        with structlog.contextvars.bound_contextvars(request_id=request_id):
-            response = await call_next(request)
-        response.headers["X-Request-ID"] = request_id
-        return response
-
-
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestIDMiddleware)
 
 
@@ -104,5 +96,15 @@ app.include_router(api_router, prefix=settings.api_v1_prefix)
 
 
 @app.get("/health", tags=["system"])
-async def health_check() -> dict[str, str]:
-    return {"status": "ok", "service": "accesscore-api"}
+async def health_check() -> JSONResponse:
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+    except Exception:
+        logger.exception("health_check_db_unreachable")
+        return JSONResponse(
+            status_code=503,
+            content={"status": "unavailable", "service": "accesscore-api", "database": "down"},
+        )
+
+    return JSONResponse(content={"status": "ok", "service": "accesscore-api", "database": "up"})

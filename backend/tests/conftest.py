@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
+from app.core.rate_limit import reset_rate_limiters
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
@@ -79,6 +80,10 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
+    # ASGITransport has no real network, so every test's requests share the
+    # same fake client host - without resetting, unrelated tests would
+    # eventually collide on the same login/refresh rate-limit budget.
+    reset_rate_limiters()
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:

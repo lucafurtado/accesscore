@@ -6,6 +6,7 @@ from app.core.dependencies import (
     get_auth_service,
     get_current_user,
 )
+from app.core.rate_limit import rate_limit_login, rate_limit_refresh
 from app.models.user import User
 from app.schemas.auth import (
     ChangePasswordRequest,
@@ -19,7 +20,12 @@ from app.services.auth_service import AuthService
 router = APIRouter()
 
 
-@router.post("/login", response_model=TokenResponse, status_code=status.HTTP_200_OK)
+@router.post(
+    "/login",
+    response_model=TokenResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(rate_limit_login)],
+)
 async def login(
     payload: LoginRequest,
     audit_ctx: AuditContext = Depends(get_audit_context),
@@ -45,7 +51,12 @@ async def login(
     )
 
 
-@router.post("/refresh", response_model=TokenResponse, status_code=status.HTTP_200_OK)
+@router.post(
+    "/refresh",
+    response_model=TokenResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(rate_limit_refresh)],
+)
 async def refresh(
     payload: RefreshRequest,
     audit_ctx: AuditContext = Depends(get_audit_context),

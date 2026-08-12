@@ -19,7 +19,12 @@ class Settings(BaseSettings):
     database_pool_size: int = 5
     database_max_overflow: int = 10
 
-    redis_url: str
+    # Optional: rate limiting (see app/core/rate_limit.py) is in-process,
+    # not Redis-backed - a free single-instance deployment has nothing for
+    # Redis to coordinate across, so it would be an extra external
+    # dependency for no benefit. This is unused today; kept only in case a
+    # future multi-instance deployment needs a shared limiter.
+    redis_url: str | None = None
 
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"
@@ -28,6 +33,13 @@ class Settings(BaseSettings):
 
     cors_origins: list[str] = ["http://localhost:3000"]
     bcrypt_rounds: int = 12
+
+    # Decoupled from `debug`: production sets debug=False (no verbose
+    # tracebacks/SQL echo) but can still opt into public /docs and /redoc,
+    # since they're read-only and every endpoint they describe still
+    # enforces its own authentication/authorization regardless of whether
+    # the docs page itself is visible.
+    enable_api_docs: bool = False
 
     # Optional: if both are set, the RBAC seed script bootstraps a dev admin
     # user with the Admin role. Never set in production; unset means skipped.

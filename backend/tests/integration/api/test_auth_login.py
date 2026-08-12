@@ -99,3 +99,23 @@ async def test_login_persists_refresh_token_as_hash_not_raw(
 
     assert stored.token_hash != raw_refresh_token
     assert len(stored.token_hash) == 64
+
+
+async def test_login_is_rate_limited_per_client(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    user = await _create_user(db_session, email="rate-limited@example.com")
+
+    # The limiter allows 10 requests/minute; wrong-password attempts still
+    # count against the budget (rate limiting must not trust the payload).
+    for _ in range(10):
+        response = await client.post(
+            "/api/v1/auth/login", json={"email": user.email, "password": "wrong-password"}
+        )
+        assert response.status_code == 401
+
+    blocked = await client.post(
+        "/api/v1/auth/login", json={"email": user.email, "password": "correct-password"}
+    )
+
+    assert blocked.status_code == 429
