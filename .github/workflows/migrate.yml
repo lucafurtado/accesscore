@@ -1,0 +1,42 @@
+name: Migrate Production Database
+
+# Render's Free plan does not execute the "Pre-Deploy Command" configured on
+# the service (verified empirically during the Milestone 5 deploy: no
+# pre_deploy event appears in the service's Render event log, and the
+# database had no tables at all after the first successful deploy). Paid
+# Render plans do run it; on Free, migrations must be applied out-of-band.
+#
+# This workflow is that out-of-band step: manually triggered (never on
+# push), so a schema change only reaches production when someone
+# deliberately decides it should, after the corresponding code has already
+# been reviewed and merged. It is intentionally decoupled from deploys —
+# Render auto-deploys on every push to main regardless of this workflow, so
+# app code and schema changes are applied independently, in whichever order
+# a given change requires (e.g. additive migrations before the code that
+# depends on them; drops after the code that stops using them).
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -e .
+
+      - name: Run migrations against production
+        run: alembic upgrade head
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          JWT_SECRET_KEY: ${{ secrets.PRODUCTION_JWT_SECRET_KEY }}
