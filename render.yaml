@@ -1,0 +1,31 @@
+# Render Blueprint - optional convenience for "New > Blueprint" in the
+# Render dashboard. The authoritative, verified path is the manual steps in
+# DEPLOYMENT.md; this file is a best-effort shortcut and hasn't been
+# deployed end-to-end, so double-check each field against what Render's UI
+# actually shows you when creating the service.
+services:
+  - name: accesscore-backend
+    type: web
+    runtime: docker
+    plan: free
+    dockerfilePath: ./backend/Dockerfile.prod
+    dockerContext: ./backend
+    healthCheckPath: /health
+    preDeployCommand: alembic upgrade head
+    envVars:
+      - key: DATABASE_URL
+        sync: false # paste the Neon connection string here
+      - key: JWT_SECRET_KEY
+        sync: false # python -c "import secrets; print(secrets.token_hex(32))"
+      - key: CORS_ORIGINS
+        sync: false # e.g. ["https://your-app.vercel.app"]
+      - key: DEBUG
+        value: "false"
+      - key: ENABLE_API_DOCS
+        value: "true"
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "15"
+      - key: REFRESH_TOKEN_EXPIRE_DAYS
+        value: "7"
+      - key: BCRYPT_ROUNDS
+        value: "12"
