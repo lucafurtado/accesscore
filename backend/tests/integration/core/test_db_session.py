@@ -9,6 +9,8 @@ through `client`. These tests drive the real get_db() generator and verify
 what actually lands in the database, via a second, independent session.
 """
 
+from collections.abc import AsyncGenerator
+
 import pytest
 import pytest_asyncio
 from sqlalchemy import select
@@ -21,7 +23,7 @@ from app.models.audit_log import AuditLog
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def _dispose_app_engine_after_test() -> None:
+async def _dispose_app_engine_after_test() -> AsyncGenerator[None, None]:
     # get_db() uses app.db.session's module-global engine/pool, not the
     # NullPool `db_engine` test fixture. pytest-asyncio hands each test
     # function its own event loop, and a pooled asyncpg connection is bound
