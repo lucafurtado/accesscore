@@ -33,9 +33,11 @@ Built solo, end to end: API, database, frontend, CI, and deployment. This is a p
 
 ## Live Demo
 
-- **App:** _deploying — see [Deployment](#deployment)_
-- **API:** _deploying_
-- **API docs:** `<api-url>/docs`
+- **App:** https://accesscore-ten.vercel.app
+- **API:** https://accesscore-backend.onrender.com
+- **API docs:** https://accesscore-backend.onrender.com/docs
+
+The API is on Render's free tier and sleeps after 15 minutes of inactivity — the first request after a while can take 30-60s to cold-start. That's expected (see [Deployment](#deployment)), not a bug.
 
 Seeded demo accounts (this is a portfolio instance, not a real user directory):
 
@@ -57,6 +59,10 @@ Log in as the Manager account to see the UI hide actions that account isn't perm
 **Permission-restricted view.** Same application, logged in as the Manager account (`roles:read`, `users:read`, `users:update` only). The sidebar itself shrinks to what the account is actually allowed to do:
 
 ![Restricted dashboard](docs/screenshots/07-restricted-dashboard.png)
+
+Navigating the Manager account directly to `/dashboard/audit-logs` by URL — bypassing the hidden nav link entirely — still doesn't work. The permission check runs regardless of how the page was reached, and the same rejection happens at the API if you skip the UI and call it directly (see [Security Decisions](#security-decisions)):
+
+![Permission denied](docs/screenshots/08-permission-denied.png)
 
 ## The Problem
 
@@ -263,13 +269,13 @@ GitHub Actions runs on every push and pull request against `main`:
 - **backend-ci** — ruff, `black --check`, mypy, then pytest against a real Postgres service container with the coverage gate enforced.
 - **frontend-ci** — eslint, `tsc --noEmit`, unit tests, then a production build.
 
-Both jobs must pass before a change is considered mergeable. A migration step (`alembic upgrade head`) runs as an explicit pre-deploy step on Render, never automatically on container boot — see [Deployment](#deployment) for why.
+Both jobs must pass before a change is considered mergeable. A separate, manually-triggered workflow (`migrate.yml`) applies database migrations to production — see [Deployment](#deployment) for why it's a distinct, deliberate step rather than something that runs automatically on every push.
 
 ## Deployment
 
 Architecture: **Vercel** (frontend) + **Render** (API, Docker) + **Neon** (Postgres) — three providers with genuinely free, permanent tiers, no credit card required, verified against each one's current official pricing documentation before being chosen. Full step-by-step setup, including the exact Render dashboard fields and the Neon connection-string rewrite required for the async driver, is in [`DEPLOYMENT.md`](DEPLOYMENT.md).
 
-Migrations run as an explicit pre-deploy command rather than on container boot, so a redeploy can never race two containers' migrations against each other.
+Migrations never run automatically on container boot, so a redeploy can never race two containers' migrations against each other. The original plan was Render's "Pre-Deploy Command" feature; in practice, that field is silently a no-op on the Free plan (accepted with no error, but no `pre_deploy` event ever fires, and a first deploy left the schema empty despite it being configured). The actual mechanism is `.github/workflows/migrate.yml`, a `workflow_dispatch`-only GitHub Actions job that runs `alembic upgrade head` against production using repository secrets — triggered deliberately (`gh workflow run migrate.yml`) whenever a change includes a migration, decoupled from the app's own auto-deploy. Full detail on this and two other Free-plan surprises (one-off Jobs are rejected outright; a service created via Render's REST API doesn't get the GitHub webhook that drives auto-deploy-on-push) is in [`DEPLOYMENT.md`](DEPLOYMENT.md).
 
 **Known trade-off:** Render's free plan sleeps the API after 15 minutes of inactivity; the first request after that takes roughly 30–60 seconds to cold-start. Acceptable for a portfolio demo; not acceptable for a real production SLA.
 
@@ -338,6 +344,7 @@ A few specific issues that came up during this build, kept here because the fix 
 - **Next.js route types don't exist on a fresh checkout.** `tsc --noEmit` depends on auto-generated types (`LayoutProps`, etc.) that Next.js writes to `.next/types/` during `next dev` or `next build`. Locally, a prior dev-server run masked this; a genuinely fresh CI checkout had nothing and failed with `Cannot find name 'LayoutProps'`. Fixed by adding an explicit `next typegen` step before type-checking in CI, and verified by simulating a truly clean checkout locally (deleting both `node_modules` and `.next`) before trusting the fix.
 - **`asyncpg`'s SSL query parameter isn't `libpq`'s.** Neon's dashboard gives you a connection string with `sslmode=require`, which is the standard `libpq` spelling. SQLAlchemy's async driver (`asyncpg`) expects `ssl=require` instead — a silent-until-runtime mismatch that only shows up as a connection failure, not a clear error about the parameter name.
 - **`AsyncEngine.connect` can't be monkeypatched directly** — it's a read-only attribute. Simulating a database-down health check required swapping the entire `engine` object in the module namespace for a fake with its own `.connect()`, rather than patching the method in place.
+- **A blanket rollback-on-any-exception silently discarded the one audit record that matters most.** `get_db()` rolled back the whole request-scoped session whenever *any* exception propagated out of a route — including the four expected domain exceptions the app deliberately maps to 4xx responses. `AuthService.authenticate_user` writes an `auth.login_failed` audit record and then raises `AuthenticationError` on bad credentials; the rollback discarded that record every time, so failed logins never actually reached the audit log despite the code (and this README) claiming otherwise. Found by running a real failed login against the deployed API during Milestone 5's E2E verification and noticing the event was missing from `/audit-logs`. The existing test suite couldn't have caught it: the `client` fixture most tests use overrides `get_db` entirely, bypassing its commit/rollback logic. Fixed by committing on the four known domain exceptions and rolling back only on genuinely unexpected ones, plus a new test file that drives the real `get_db()` generator directly instead of going through the override.
 
 ## Limitations
 
